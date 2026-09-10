@@ -1,2 +1,2 @@
-numpy
-networkx
+numpy==2.3.5
+networkx==3.6.1
