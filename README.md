@@ -2,8 +2,7 @@
 
 Reproducibility code accompanying the manuscript
 
-**Discounted Hitting Domination on Graphs:  
-Submodularity, Complexity, and Exact Algorithms**
+**Discounted Hitting Domination on Graphs with Submodularity, Complexity and Exact Algorithms**
 
 Julian D. Allagan, Kevin Pereyra, and William A. Massey.
 
