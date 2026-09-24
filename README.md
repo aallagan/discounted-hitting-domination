@@ -40,7 +40,7 @@ and independent checks of several theoretical results.
 
 ## Requirements
 
-- Python 3.13 (tested with Python 3.13.5)
+- Python 3.13
 - NumPy 2.3.5
 - NetworkX 3.6.1
 - SciPy 1.17.0
