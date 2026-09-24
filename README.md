@@ -40,10 +40,10 @@ and independent checks of several theoretical results.
 
 ## Requirements
 
-- Python 3
-- NumPy
-- NetworkX
-- SciPy
+- Python 3.13 (tested with Python 3.13.5)
+- NumPy 2.3.5
+- NetworkX 3.6.1
+- SciPy 1.17.0
 
 Install the required packages with:
 
