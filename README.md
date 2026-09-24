@@ -6,78 +6,46 @@ Reproducibility code accompanying the manuscript
 
 Julian D. Allagan, Kevin Pereyra, and William A. Massey.
 
+**Software author:** Julian D. Allagan
+
+## Overview
+
+This repository contains the computational code used to reproduce and verify
+the numerical and small-instance results reported in the manuscript.
+
+The main script, `reproduce_results.py`, implements the discounted hitting
+equilibrium, source-placement comparisons, exact optimization certificates,
+and independent checks of several theoretical results.
+
 ## Contents
 
-`reproduce_results.py` reproduces the computational study in the manuscript and:
+`reproduce_results.py`:
 
-- reproduces the Zachary karate-club and Barabási–Albert source-placement comparisons;
-- reports the source-selection curves used in the computational figure;
-- certifies the weighted-karate optimum by exhaustive search below a feasible upper bound;
-- reports weighted-strength and weighted-closeness baselines;
-- checks selected small instances of the distance-\(r\) recovery theorem by exhaustive search; and
-- verifies the complete-graph formula on small instances using exact rational arithmetic.
+- reproduces the source-placement study on Zachary's weighted karate-club
+  network and on the Barabási–Albert graph `BA(120,2)` with seed `7`;
+- computes the greedy discounted-hitting (HD), degree, closeness,
+  weighted-strength, and weighted-closeness placement comparisons;
+- solves the exact mixed-integer linear formulation for the discounted
+  hitting domination number;
+- computes exact classical domination numbers for the network experiments;
+- independently checks the weighted-karate optimum by exhaustive search;
+- reports source-selection orders, worst-vertex support values, and
+  Jaccard similarities used in the computational comparisons;
+- checks selected small instances of the distance-\(r\) recovery identity
+  \(\delta_{\lambda,\tau}(G)=\gamma_r(G)\) by exhaustive search;
+- checks the exact spider formula against exhaustive subset minimization
+  on small spiders; and
+- verifies the complete-graph formula on small instances using exact
+  rational arithmetic.
 
 ## Requirements
 
 - Python 3
 - NumPy
 - NetworkX
+- SciPy
 
-Install dependencies with:
+Install the required packages with:
 
 ```bash
 pip install -r requirements.txt
-```
-
-## Run
-
-Run the reproducibility script from the repository directory with:
-
-```bash
-python reproduce_results.py
-```
-
-The script reports the Python, NumPy, and NetworkX versions used in the run.
-
-## Computational details
-
-General equilibrium computations and the exhaustive small-graph checks use
-double-precision floating-point linear algebra through NumPy. The
-complete-graph checks use exact rational arithmetic through Python's
-`fractions.Fraction`.
-
-The script reproduces the numerical source-placement comparisons reported
-in the manuscript, including the weighted Zachary karate-club network and
-the Barabási–Albert graph generated with the fixed seed specified in the
-manuscript.
-
-The weighted-karate optimum is certified by exhaustive search below a
-known feasible upper bound. The Barabási–Albert HD value is a greedy
-placement result and is not claimed to be a certified global optimum.
-
-## Reproducibility
-
-The repository contains:
-
-- `reproduce_results.py` — computational reproduction and verification script;
-- `requirements.txt` — Python package requirements;
-- `CITATION.cff` — citation metadata;
-- `LICENSE` — MIT License.
-
-The network data are obtained through NetworkX. The Barabási–Albert graph
-is generated deterministically using the fixed seed stated in the
-manuscript and in the script.
-
-## License
-
-This software is released under the MIT License. See [LICENSE](LICENSE)
-for details.
-
-## Citation
-
-If you use this code, please cite the associated manuscript and this
-software repository. Citation metadata are provided in
-[CITATION.cff](CITATION.cff).
-
-A permanent DOI will be added after the software release is archived on
-Zenodo.
