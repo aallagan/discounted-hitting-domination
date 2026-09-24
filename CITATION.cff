@@ -1,18 +1,35 @@
 cff-version: 1.2.0
-message: "If you use this software, please cite this repository and the associated manuscript."
+message: "If you use this software, please cite this software release and the associated manuscript."
 title: "Discounted Hitting Domination: Reproducibility Code"
 type: software
-authors:
-  - family-names: Allagan
-    given-names: Julian D.
-    affiliation: University of Maryland Eastern Shore
-  - family-names: Pereyra
-    given-names: Kevin
-    affiliation: Universidad Nacional de San Luis
-  - family-names: Massey
-    given-names: William A.
-    affiliation: Princeton University
-version: 1.0.0
-date-released: 2026-09-09
+version: "1.0.0"
+date-released: 2026-09-24
 license: MIT
+
+authors:
+  - family-names: "Allagan"
+    given-names: "Julian D."
+    affiliation: "University of Maryland Eastern Shore"
+
 repository-code: "https://github.com/aallagan/discounted-hitting-domination"
+
+keywords:
+  - graph domination
+  - random walks
+  - discounted hitting probability
+  - submodular optimization
+  - mixed-integer linear programming
+  - source placement
+  - reproducible research
+
+references:
+  - type: unpublished
+    title: "Discounted Hitting Domination on Graphs with Submodularity, Complexity and Exact Algorithms"
+    authors:
+      - family-names: "Allagan"
+        given-names: "Julian D."
+      - family-names: "Pereyra"
+        given-names: "Kevin"
+      - family-names: "Massey"
+        given-names: "William A."
+    year: 2026
