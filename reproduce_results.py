@@ -7,24 +7,29 @@ This script:
    network and on BA(120,2) with seed 7;
 2. reports the HD, degree, closeness, weighted-strength, and weighted-closeness
    comparisons used in the manuscript;
-3. records the source-selection curves underlying the numerical figure;
-4. certifies the weighted-karate optimum by exhaustive search below a known
-   feasible upper bound;
-5. checks the distance-r recovery identity delta_{lambda,tau}=gamma_r on
+3. records the source-selection curves used in the computational comparisons;
+4. certifies the discounted-hitting optimum delta and the classical domination
+   number gamma by mixed-integer linear programming (SciPy/HiGHS);
+5. independently checks the weighted-karate optimum and related enumeration
+   claims by exhaustive search;
+6. checks the distance-r recovery identity delta_{lambda,tau}=gamma_r on
    selected small graphs by exhaustive search;
-6. checks the exact spider formula delta = min{D_c, D_cbar} of the spider
+7. checks the exact spider formula delta = min{D_c, D_cbar} of the spider
    theorem against exhaustive subset minimization on small spiders; and
-7. checks the complete-graph formula on a grid of small instances using exact
+8. checks the complete-graph formula on a grid of small instances using exact
    rational arithmetic.
 
 Numerical equilibrium computations use double-precision floating-point
-arithmetic through numpy.linalg.solve.  The transfer sequences p_k, q_k, the
-spider formula, and the complete-graph checks use exact rational arithmetic
-through fractions.Fraction.
+arithmetic through numpy.linalg.solve. The mixed-integer programs use
+scipy.optimize.milp with the bundled HiGHS solver and require zero reported
+MIP gap; each returned source set is re-evaluated by the pinned linear system.
+The transfer sequences p_k, q_k, the spider formula, and the complete-graph
+checks use exact rational arithmetic through fractions.Fraction.
 
 Requirements:
     numpy
     networkx
+    scipy
 """
 
 from __future__ import annotations
@@ -36,6 +41,9 @@ from typing import Iterable, Sequence
 
 import networkx as nx
 import numpy as np
+import scipy
+from scipy.optimize import Bounds, LinearConstraint, milp
+from scipy.sparse import csr_matrix, lil_matrix
 
 TOL = 1e-12
 
@@ -163,6 +171,156 @@ def certify_optimum_below_feasible_upper_bound(G, nodes, lam, tau, weighted, fea
     return upper_bound
 
 
+# ---------------------------------------------------------------------------
+# Exact mixed-integer formulations used in the manuscript
+# ---------------------------------------------------------------------------
+
+def transition_matrix(G, nodes, weighted=False):
+    adjacency = nx.to_numpy_array(
+        G, nodelist=list(nodes),
+        weight=("weight" if weighted else None), dtype=float)
+    degrees = adjacency.sum(axis=1)
+    if np.any(degrees <= 0):
+        raise ValueError("The graph must have no isolated vertices.")
+    return adjacency / degrees[:, None]
+
+
+def exact_dhd_milp(G, nodes, lam, tau, weighted=False):
+    """Solve the exact DHD MILP from the manuscript.
+
+    Variables are ordered as (y_1,...,y_n,h_1,...,h_n), where y_i is binary.
+    The returned source set is re-evaluated by the pinned linear system.
+    """
+    W = transition_matrix(G, nodes, weighted)
+    n = len(nodes)
+
+    objective = np.r_[np.ones(n), np.zeros(n)]
+    integrality = np.r_[np.ones(n), np.zeros(n)]
+    lower_bounds = np.r_[np.zeros(n), np.full(n, tau)]
+    upper_bounds = np.ones(2 * n)
+
+    A = lil_matrix((3 * n, 2 * n), dtype=float)
+    for i in range(n):
+        # y_i <= h_i
+        A[i, i] = 1.0
+        A[i, n + i] = -1.0
+
+        # h_i - lambda * sum_j W_ij h_j >= 0
+        A[n + i, n + i] = 1.0
+        A[n + i, n:] -= lam * W[i, :]
+
+        # h_i - lambda * sum_j W_ij h_j <= y_i
+        A[2 * n + i, i] = -1.0
+        A[2 * n + i, n + i] = 1.0
+        A[2 * n + i, n:] -= lam * W[i, :]
+
+    constraint_lb = np.r_[
+        np.full(n, -np.inf),
+        np.zeros(n),
+        np.full(n, -np.inf),
+    ]
+    constraint_ub = np.r_[
+        np.zeros(n),
+        np.full(n, np.inf),
+        np.zeros(n),
+    ]
+
+    result = milp(
+        objective,
+        integrality=integrality,
+        bounds=Bounds(lower_bounds, upper_bounds),
+        constraints=LinearConstraint(csr_matrix(A), constraint_lb, constraint_ub),
+        options={"disp": False, "mip_rel_gap": 0.0},
+    )
+    if not result.success or result.x is None:
+        raise RuntimeError(f"DHD MILP failed: {result.message}")
+
+    sources = np.flatnonzero(result.x[:n] > 0.5).tolist()
+    support = worst_support(G, nodes, lam, sources, weighted)
+    return int(round(result.fun)), sources, support, result
+
+
+def exact_domination_milp(G, nodes):
+    """Compute the classical domination number by a binary MILP."""
+    n = len(nodes)
+    index = {u: i for i, u in enumerate(nodes)}
+    A = lil_matrix((n, n), dtype=float)
+    for i, u in enumerate(nodes):
+        A[i, i] = 1.0
+        for v in G.neighbors(u):
+            A[i, index[v]] = 1.0
+
+    result = milp(
+        np.ones(n),
+        integrality=np.ones(n),
+        bounds=Bounds(np.zeros(n), np.ones(n)),
+        constraints=LinearConstraint(
+            csr_matrix(A), np.ones(n), np.full(n, np.inf)),
+        options={"disp": False, "mip_rel_gap": 0.0},
+    )
+    if not result.success or result.x is None:
+        raise RuntimeError(f"domination MILP failed: {result.message}")
+
+    sources = np.flatnonzero(result.x > 0.5).tolist()
+    return int(round(result.fun)), sources, result
+
+
+def karate_exhaustive_summary(G, nodes, lam, tau):
+    """Verify the finite enumeration claims stated for weighted Karate."""
+    W = transition_matrix(G, nodes, weighted=True)
+    n = len(nodes)
+    index = {u: i for i, u in enumerate(nodes)}
+    closed = {
+        i: {i} | {index[v] for v in G.neighbors(u)}
+        for i, u in enumerate(nodes)
+    }
+
+    def support(S):
+        source_set = set(S)
+        U = [i for i in range(n) if i not in source_set]
+        if not U:
+            return 1.0
+        Ui = np.array(U, dtype=int)
+        Si = np.array(sorted(source_set), dtype=int)
+        matrix = np.eye(len(U)) - lam * W[np.ix_(Ui, Ui)]
+        rhs = lam * W[np.ix_(Ui, Si)].sum(axis=1)
+        hU = np.linalg.solve(matrix, rhs)
+        return float(min(1.0, hU.min()))
+
+    def dominates(S):
+        covered = set()
+        for i in S:
+            covered |= closed[i]
+        return len(covered) == n
+
+    best_four = -1.0
+    min_dom_count = 0
+    best_min_dom_support = -1.0
+    for S in itertools.combinations(range(n), 4):
+        w = support(S)
+        best_four = max(best_four, w)
+        if dominates(S):
+            min_dom_count += 1
+            best_min_dom_support = max(best_min_dom_support, w)
+
+    feasible_five = 0
+    feasible_five_dominating = 0
+    for S in itertools.combinations(range(n), 5):
+        w = support(S)
+        if w >= tau - TOL:
+            feasible_five += 1
+            if dominates(S):
+                feasible_five_dominating += 1
+
+    return {
+        "best_four_support": best_four,
+        "minimum_dominating_sets": min_dom_count,
+        "best_minimum_dominating_support": best_min_dom_support,
+        "feasible_five_sets": feasible_five,
+        "feasible_five_dominating": feasible_five_dominating,
+    }
+
+
 def weighted_karate_baselines(G, lam, tau):
     nodes = list(G.nodes())
     strength = {u: G.degree(u, weight="weight") for u in nodes}
@@ -177,7 +335,7 @@ def weighted_karate_baselines(G, lam, tau):
     return len(strength_sources), len(closeness_sources)
 
 
-def placement_study(G, name, lam, tau, weighted, certify_exact):
+def placement_study(G, name, lam, tau, weighted, exhaustive_check=False):
     nodes = list(G.nodes())
     degrees = [G.degree(u) for u in nodes]
 
@@ -203,13 +361,17 @@ def placement_study(G, name, lam, tau, weighted, certify_exact):
     D = greedy_dominating_set(G, nodes)
     dworst = worst_support(G, nodes, lam, D, weighted)
 
-    exact_delta = (
-        certify_optimum_below_feasible_upper_bound(
+    exact_delta, milp_sources, milp_worst, delta_result = exact_dhd_milp(
+        G, nodes, lam, tau, weighted
+    )
+    exact_gamma, gamma_sources, gamma_result = exact_domination_milp(G, nodes)
+
+    exhaustive_delta = None
+    if exhaustive_check:
+        exhaustive_delta = certify_optimum_below_feasible_upper_bound(
             G, nodes, lam, tau, weighted, hd_sources
         )
-        if certify_exact
-        else None
-    )
+        assert exhaustive_delta == exact_delta
 
     print(
         f"\n{name}: n={len(nodes)} m={G.number_of_edges()} "
@@ -218,13 +380,22 @@ def placement_study(G, name, lam, tau, weighted, certify_exact):
         f"lambda={lam} tau={tau}"
     )
     print(f"  HD source set (selection order): {hd_sources}")
+    print(f"  HD sources={len(hd_sources)}")
     print(
-        f"  HD sources={len(hd_sources)}  exact optimum="
-        f"{exact_delta if exact_delta is not None else 'not certified'}"
+        f"  exact DHD optimum delta={exact_delta}; MILP source set={milp_sources}; "
+        f"re-evaluated worst={milp_worst:.6f}; "
+        f"MIP gap={getattr(delta_result, 'mip_gap', float('nan')):.3g}"
     )
+    if exhaustive_delta is not None:
+        print(f"  exhaustive Karate check: delta={exhaustive_delta}")
     print(
         f"  degree sources={len(degree_sources)}  "
         f"closeness sources={len(closeness_sources)}"
+    )
+    print(
+        f"  exact domination number gamma={exact_gamma}; "
+        f"MILP dominating set={gamma_sources}; "
+        f"MIP gap={getattr(gamma_result, 'mip_gap', float('nan')):.3g}"
     )
     print(
         f"  greedy dominating set |D|={len(D)}  "
@@ -249,6 +420,10 @@ def placement_study(G, name, lam, tau, weighted, certify_exact):
         "degree_curve": degree_curve,
         "closeness_sources": closeness_sources,
         "closeness_curve": closeness_curve,
+        "delta": exact_delta,
+        "gamma": exact_gamma,
+        "milp_sources": milp_sources,
+        "milp_worst": milp_worst,
     }
 
 
@@ -303,7 +478,7 @@ def transfer_sequences(kmax, lam):
     """Exact p_k, q_k for k=0..kmax via y_{k+1}=(2/lam)y_k - y_{k-1}."""
     two = 2 / lam
     p, q = [Fraction(0), Fraction(1)], [Fraction(1), 1 / lam]
-    for _ in range(1, kmax + 1):
+    for _ in range(1, kmax):
         p.append(two * p[-1] - p[-2])
         q.append(two * q[-1] - q[-2])
     return p, q
@@ -449,17 +624,26 @@ def main():
     print(f"Python:   {sys.version.split()[0]}")
     print(f"NumPy:    {np.__version__}")
     print(f"NetworkX: {nx.__version__}")
+    print(f"SciPy:    {scipy.__version__}")
 
     karate = nx.karate_club_graph()
     result = placement_study(karate, "Zachary karate-club network",
-                             lam=0.85, tau=0.55, weighted=True, certify_exact=True)
+                             lam=0.85, tau=0.55, weighted=True, exhaustive_check=False)
     ws, wc = weighted_karate_baselines(karate, 0.85, 0.55)
     print(f"  weighted-strength sources={ws}; weighted-closeness sources={wc}; "
           f"HD={len(result['hd_sources'])}")
 
+    summary = karate_exhaustive_summary(karate, list(karate.nodes()), 0.85, 0.55)
+    print("  exhaustive Karate enumeration:")
+    print(f"    best worst-support over all 4-source sets = {summary['best_four_support']:.6f}")
+    print(f"    minimum dominating sets (size 4) = {summary['minimum_dominating_sets']}")
+    print(f"    best worst-support among them = {summary['best_minimum_dominating_support']:.6f}")
+    print(f"    feasible 5-source DHD sets = {summary['feasible_five_sets']}")
+    print(f"    of these, classical dominating sets = {summary['feasible_five_dominating']}")
+
     ba = nx.barabasi_albert_graph(120, 2, seed=7)
     placement_study(ba, "Barabasi-Albert BA(120,2), seed 7",
-                    lam=0.85, tau=0.30, weighted=False, certify_exact=False)
+                    lam=0.85, tau=0.30, weighted=False, exhaustive_check=False)
 
     check_distance_recovery_examples()
     check_spider_formula()
