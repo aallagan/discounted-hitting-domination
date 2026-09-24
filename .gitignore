@@ -216,3 +216,11 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Operating-system and editor artifacts
+.DS_Store
+Thumbs.db
+*.swp
+*.tmp
+.idea/
+.vscode/
